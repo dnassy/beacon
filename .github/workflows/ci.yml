@@ -22,6 +22,27 @@ jobs:
           ./bin/topic_tests
           ./bin/wire_tests
           ./bin/unchecked_access_tests
+      - name: UART integration tests (virtual serial ports)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y socat
+
+          socat \
+            PTY,raw,echo=0,link=/tmp/beacon-tx \
+            PTY,raw,echo=0,link=/tmp/beacon-rx &
+          SOCAT_PID=$!
+
+          trap 'kill $SOCAT_PID 2>/dev/null || true' EXIT
+
+          for i in $(seq 1 50); do
+            if [ -e /tmp/beacon-tx ] && [ -e /tmp/beacon-rx ]; then
+              break
+            fi
+            sleep 0.1
+          done
+
+          cd tests
+          ./bin/uart_tests /tmp/beacon-tx /tmp/beacon-rx
       - name: In-process demo (reliable never drops, best-effort keeps newest)
         run: |
           cd demo

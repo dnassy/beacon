@@ -49,6 +49,15 @@ procedure UART_Tests is
       5 => 1, 6 => 1, 7 => 1, 8 => 1,
       9 => 0];
 
+   --  Invalid COBS packet: code 5 requires four data bytes,
+   --  but the packet ends immediately.
+   Malformed : constant Stream_Element_Array (1 .. 2) :=
+     [5, 0];
+
+   --  Deliberately exceeds the UART receive buffer.
+   Oversized : constant Stream_Element_Array (1 .. 1_200) :=
+     [1 .. 1_199 => 1, 1_200 => 0];
+
 begin
    Put_Line ("Beacon UART maximum-frame test");
 
@@ -123,7 +132,11 @@ begin
 
    Serial.Open
   (Raw_Port,
-   Serial.Port_Name ("\\.\" & Tx_Port));
+   Serial.Port_Name
+     ((if Tx_Port'Length >= 3
+         and then Tx_Port (Tx_Port'First .. Tx_Port'First + 2) = "COM"
+       then "\\.\" & Tx_Port
+       else Tx_Port)));
 
    Serial.Set
      (Port      => Raw_Port,
@@ -164,7 +177,105 @@ begin
 
    Put_Line ("  ok    partial frame recovery");
 
+   --  Send an invalid COBS packet.
+   Serial.Write (Raw_Port, Malformed);
+
+   UART.Receive (Rx, Result, Count, 0.2);
+
+   if Count /= 0 then
+      raise Program_Error with
+        "Malformed COBS packet was incorrectly accepted";
+   end if;
+
+   Put_Line ("  ok    malformed frame rejected");
+
+   --  Follow with a valid COBS packet without reopening the port.
+   Serial.Write (Raw_Port, First_Half);
+   Serial.Write (Raw_Port, Second_Half);
+
+   UART.Receive (Rx, Result, Count, 5.0);
+
+   if Count /= Header_Length then
+      raise Program_Error with
+        "UART failed to recover after malformed COBS packet";
+   end if;
+
+   for I in 1 .. Count loop
+      if Result (I) /= 0 then
+         raise Program_Error with
+           "Recovered COBS packet data mismatch";
+      end if;
+   end loop;
+
+   Put_Line ("  ok    malformed frame recovery");
+
+   --  Transmit an oversized COBS packet.
+   Serial.Write (Raw_Port, Oversized);
+
+   UART.Receive (Rx, Result, Count, 5.0);
+
+   if Count /= 0 then
+      raise Program_Error with
+        "Oversized UART packet was incorrectly accepted";
+   end if;
+
+   Put_Line ("  ok    oversized frame rejected");
+
+   --  Verify recovery after the oversized packet.
+   Serial.Write (Raw_Port, First_Half);
+   Serial.Write (Raw_Port, Second_Half);
+
+   UART.Receive (Rx, Result, Count, 5.0);
+
+   if Count /= Header_Length then
+      raise Program_Error with
+        "UART failed to recover after oversized packet";
+   end if;
+
+   for I in 1 .. Count loop
+      if Result (I) /= 0 then
+         raise Program_Error with
+           "Recovered frame data mismatch after oversized packet";
+      end if;
+   end loop;
+
+   Put_Line ("  ok    oversized frame recovery");
+
    Serial.Close (Raw_Port);
+
+   --  Verify failure when opening a nonexistent serial port.
+   declare
+      Test_Port : UART.UART_Transport;
+      Failed    : Boolean := False;
+
+      Invalid_Port : constant String :=
+      (if Tx_Port'Length >= 3
+            and then Tx_Port (Tx_Port'First .. Tx_Port'First + 2) = "COM"
+         then "COM250"
+         else "/tmp/beacon-nonexistent-uart-port");
+   begin
+      begin
+         UART.Open
+         (Test_Port, UART.Serial.Port_Name (Invalid_Port));
+      exception
+         when Serial.Serial_Error =>
+            Failed := True;
+      end;
+
+      if not Failed then
+         UART.Close (Test_Port);
+         raise Program_Error with
+           "Nonexistent UART port was accepted";
+      end if;
+
+      Put_Line ("  ok    invalid serial port rejected");
+
+      --  The same transport object must remain reusable.
+      UART.Open (Test_Port, UART.Serial.Port_Name (Tx_Port));
+      UART.Close (Test_Port);
+
+      Put_Line ("  ok    recovery after failed port open");
+   end;
 
    UART.Close (Tx);
    UART.Close (Rx);

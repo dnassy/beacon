@@ -13,6 +13,7 @@ project Demo is
       "net_subscriber.adb",
       "uart_publisher.adb",
       "uart_subscriber.adb",
+      "uart_crc_test.adb",
 
       -- Files for environmental system demonstration.
       "beacon_server.adb",

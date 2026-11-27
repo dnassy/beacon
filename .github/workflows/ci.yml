@@ -43,6 +43,26 @@ jobs:
 
           cd tests
           ./bin/uart_tests /tmp/beacon-tx /tmp/beacon-rx
+      - name: UART bridge CRC integration test
+        run: |
+          cd demo
+          alr -n build
+
+          socat \
+            PTY,raw,echo=0,link=/tmp/beacon-crc-tx \
+            PTY,raw,echo=0,link=/tmp/beacon-crc-rx &
+          SOCAT_PID=$!
+
+          trap 'kill $SOCAT_PID 2>/dev/null || true' EXIT
+
+          for i in $(seq 1 50); do
+            if [ -e /tmp/beacon-crc-tx ] && [ -e /tmp/beacon-crc-rx ]; then
+              break
+            fi
+            sleep 0.1
+          done
+
+          ./bin/uart_crc_test /tmp/beacon-crc-tx /tmp/beacon-crc-rx
       - name: In-process demo (reliable never drops, best-effort keeps newest)
         run: |
           cd demo

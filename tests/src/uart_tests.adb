@@ -76,6 +76,25 @@ begin
    UART.Open (Rx, UART.Serial.Port_Name (Rx_Port));
    UART.Open (Tx, UART.Serial.Port_Name (Tx_Port));
 
+   --  Opening an already-open transport must be rejected.
+   declare
+      Failed : Boolean := False;
+   begin
+      begin
+         UART.Open (Tx, UART.Serial.Port_Name (Tx_Port));
+      exception
+         when Serial.Serial_Error =>
+            Failed := True;
+      end;
+
+      if not Failed then
+         raise Program_Error with
+           "Opening an active UART transport was accepted";
+      end if;
+
+      Put_Line ("  ok    duplicate port open rejected");
+   end;
+
    --  No data available: Receive must return without a frame.
    UART.Receive (Rx, Result, Count, 0.1);
 
